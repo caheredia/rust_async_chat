@@ -8,10 +8,10 @@ use tokio::{
 async fn main() {
     let listener = TcpListener::bind("127.0.0.1:8080").await.unwrap();
     //  broadcast a message to all clients
-    let (tx, _rx) = broadcast::channel::<String>(10);
+    let (tx, _rx) = broadcast::channel(10);
 
     loop {
-        let (mut socket, _addr) = listener.accept().await.unwrap();
+        let (mut socket, addr) = listener.accept().await.unwrap();
 
         // clone ts to bring into the scope of the loop
         let tx = tx.clone();
@@ -26,6 +26,7 @@ async fn main() {
 
             loop {
                 // select takes an identifier and then a future. Similar to python's async.gather or from_futures
+                // use select on a finit number of things that share state
                 tokio::select! {
                 // read from the client
                     result = reader.read_line(& mut line)=>{
@@ -33,15 +34,18 @@ async fn main() {
                     break;
                 }
                 // after reading the line from client, put something on the cue
-                    tx.send(line.clone()).unwrap();
+                    tx.send((line.clone(), addr)).unwrap();
                     line.clear();
                 }
                 // add another future
                 // read from the cue
                     result = rx.recv()=>{
-                        let msg = result.unwrap();
+                        let (msg, other_addr) = result.unwrap();
+
+                        if addr != other_addr{
                          // send to the client
-                        socket_writer.write_all(msg.as_bytes()).await.unwrap();
+                            socket_writer.write_all(msg.as_bytes()).await.unwrap();
+                        }
                     }
                 };
             }
